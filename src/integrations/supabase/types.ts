@@ -14,7 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      interview_attempts: {
+        Row: {
+          attempt_id: string
+          candidate: Json
+          created_at: string
+          feedback: Json | null
+          id: string
+          pending: Json | null
+          session_id: string
+          status: string
+          topics: Json
+          turns: Json
+          updated_at: string
+        }
+        Insert: {
+          attempt_id: string
+          candidate: Json
+          created_at?: string
+          feedback?: Json | null
+          id?: string
+          pending?: Json | null
+          session_id: string
+          status?: string
+          topics?: Json
+          turns?: Json
+          updated_at?: string
+        }
+        Update: {
+          attempt_id?: string
+          candidate?: Json
+          created_at?: string
+          feedback?: Json | null
+          id?: string
+          pending?: Json | null
+          session_id?: string
+          status?: string
+          topics?: Json
+          turns?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
