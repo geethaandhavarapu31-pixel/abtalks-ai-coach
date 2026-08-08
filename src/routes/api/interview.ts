@@ -347,6 +347,117 @@ async function db() {
   return supabaseAdmin;
 }
 
+function rowToPrior(row: any): PriorAttempt | null {
+  if (!row || !row.feedback) return null;
+  const turns = (row.turns ?? []) as Turn[];
+  return {
+    attemptId: row.attempt_id,
+    attemptNumber: row.attempt_number ?? 1,
+    overallScore: row.feedback.overallScore ?? 0,
+    accuracy: row.feedback.accuracy ?? 0,
+    topicPerformance: row.feedback.topicPerformance ?? [],
+    questions: turns.map((t) => ({
+      question: t.question,
+      topic: t.topic,
+      score: t.evaluation?.score ?? 0,
+    })),
+    missingConcepts: Array.from(
+      new Set(turns.flatMap((t) => t.evaluation?.missingConcepts ?? [])),
+    ).slice(0, 12),
+  };
+}
+
+async function fetchPrior(
+  supabase: any,
+  candidateId: string | null,
+  attemptNumber: number,
+): Promise<{ prior: PriorAttempt | null; row: any }> {
+  if (!candidateId || attemptNumber <= 1) return { prior: null, row: null };
+  const { data } = await supabase
+    .from("interview_attempts")
+    .select("*")
+    .eq("candidate_id", candidateId)
+    .eq("status", "completed")
+    .lt("attempt_number", attemptNumber)
+    .order("attempt_number", { ascending: false })
+    .limit(1);
+  const row = data?.[0] ?? null;
+  return { prior: rowToPrior(row), row };
+}
+
+function round1(n: number) {
+  return Math.round(n * 10) / 10;
+}
+
+function buildComparison(firstRow: any, currentRow: any) {
+  const first = firstRow?.feedback;
+  const current = currentRow?.feedback;
+  if (!first || !current) return null;
+
+  const firstTopics: any[] = first.topicPerformance ?? [];
+  const currentTopics: any[] = current.topicPerformance ?? [];
+  const byTopic = new Map(firstTopics.map((t) => [t.topic, t]));
+
+  const topicComparison = currentTopics
+    .filter((t) => byTopic.has(t.topic))
+    .map((t) => {
+      const prev = byTopic.get(t.topic)!;
+      return {
+        topic: t.topic,
+        firstAccuracy: prev.accuracy,
+        retakeAccuracy: t.accuracy,
+        change: t.accuracy - prev.accuracy,
+      };
+    })
+    .sort((a, b) => b.change - a.change);
+
+  const mostImproved = topicComparison.length && topicComparison[0]!.change > 0 ? topicComparison[0] : null;
+  const weakest = currentTopics.length
+    ? [...currentTopics].sort((a, b) => a.accuracy - b.accuracy)[0]
+    : null;
+
+  const scoreImprovement = round1((current.overallScore ?? 0) - (first.overallScore ?? 0));
+  const accuracyImprovement = (current.accuracy ?? 0) - (first.accuracy ?? 0);
+
+  const acc = current.accuracy ?? 0;
+  const status =
+    acc >= 80
+      ? "STRONG CANDIDATE"
+      : accuracyImprovement > 0 && acc >= 60
+        ? "GOOD PROGRESS"
+        : acc >= 50
+          ? "NEEDS IMPROVEMENT"
+          : "KEEP PRACTICING";
+
+  return {
+    first: {
+      attemptId: firstRow.attempt_id,
+      attemptNumber: firstRow.attempt_number ?? 1,
+      overallScore: first.overallScore,
+      accuracy: first.accuracy,
+    },
+    retake: {
+      attemptId: currentRow.attempt_id,
+      attemptNumber: currentRow.attempt_number ?? 2,
+      overallScore: current.overallScore,
+      accuracy: current.accuracy,
+    },
+    scoreImprovement,
+    accuracyImprovement,
+    topicComparison,
+    mostImproved,
+    weakest,
+    status,
+  };
+}
+
+function finalStatus(accuracy: number) {
+  if (accuracy >= 80) return "STRONG CANDIDATE";
+  if (accuracy >= 65) return "GOOD PROGRESS";
+  if (accuracy >= 50) return "NEEDS IMPROVEMENT";
+  return "KEEP PRACTICING";
+}
+
 export const Route = createFileRoute("/api/interview")({
   server: {
     handlers: {
@@ -361,15 +472,37 @@ export const Route = createFileRoute("/api/interview")({
           .maybeSingle();
         if (error) return json({ error: error.message }, 500);
         if (!data) return json({ error: "Session not found" }, 404);
+
+        const { row: priorRow } = await fetchPrior(
+          supabase,
+          (data as any).candidate_id ?? (data.candidate as any)?.id ?? null,
+          (data as any).attempt_number ?? 1,
+        );
+
         return json({
           sessionId: data.session_id,
           attemptId: data.attempt_id,
+          attemptNumber: (data as any).attempt_number ?? 1,
+          candidateId: (data as any).candidate_id ?? (data.candidate as any)?.id ?? null,
           candidate: data.candidate,
           turns: data.turns,
           status: data.status,
           feedback: data.feedback,
+          finalStatus: data.feedback ? finalStatus((data.feedback as any).accuracy ?? 0) : null,
+          previousAttempt: priorRow
+            ? {
+                attemptId: priorRow.attempt_id,
+                attemptNumber: priorRow.attempt_number ?? 1,
+                sessionId: priorRow.session_id,
+                overallScore: priorRow.feedback?.overallScore ?? 0,
+                accuracy: priorRow.feedback?.accuracy ?? 0,
+                topicPerformance: priorRow.feedback?.topicPerformance ?? [],
+              }
+            : null,
+          comparison: buildComparison(priorRow, data),
         });
       },
+
 
       POST: async ({ request }) => {
         let body: any;
