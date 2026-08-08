@@ -50,7 +50,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function callGemini(system: string, user: string): Promise<Record<string, unknown>> {
+async function callGemini(system: string, user: string): Promise<any> {
   const key = process.env["LOVABLE_API_KEY"];
   if (!key) throw new Error("AI is not configured");
 
@@ -90,10 +90,7 @@ async function callGemini(system: string, user: string): Promise<Record<string, 
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
     try {
-      return JSON.parse(start >= 0 ? cleaned.slice(start, end + 1) : cleaned) as Record<
-        string,
-        unknown
-      >;
+      return JSON.parse(start >= 0 ? cleaned.slice(start, end + 1) : cleaned);
     } catch {
       lastError = "AI returned invalid JSON";
     }
@@ -114,7 +111,7 @@ function clampDifficulty(v: unknown): Difficulty {
   return "Basic";
 }
 
-function candidateBrief(candidate: Record<string, any>): string {
+function candidateBrief(candidate: any): string {
   return JSON.stringify(
     {
       name: candidate?.name,
@@ -146,12 +143,12 @@ function targetDifficulty(lastScore: number | null): Difficulty {
 }
 
 async function generateQuestion(
-  candidate: Record<string, any>,
+  candidate: any,
   turns: Turn[],
 ): Promise<Pending> {
-  const lastScore = turns.length ? turns[turns.length - 1].evaluation.score : null;
+  const last = turns.length ? turns[turns.length - 1]! : undefined;
+  const lastScore = last ? last.evaluation.score : null;
   const difficulty = turns.length === 0 ? "Basic" : targetDifficulty(lastScore);
-  const last = turns[turns.length - 1];
 
   const system =
     "You are AB Talks, an AI technical interviewer. You ask ONE question at a time. " +
@@ -188,7 +185,7 @@ async function generateQuestion(
 }
 
 async function evaluateAnswer(
-  candidate: Record<string, any>,
+  candidate: any,
   pending: Pending,
   answer: string,
 ): Promise<Evaluation> {
@@ -249,7 +246,7 @@ export function topicPerformance(turns: Turn[]) {
     .sort((a, b) => a.accuracy - b.accuracy);
 }
 
-async function buildFeedback(candidate: Record<string, any>, turns: Turn[]) {
+async function buildFeedback(candidate: any, turns: Turn[]) {
   const topics = topicPerformance(turns);
   const average = turns.reduce((s, t) => s + t.evaluation.score, 0) / (turns.length || 1);
   const overallScore = Math.round(average * 10) / 10;
@@ -277,7 +274,7 @@ async function buildFeedback(candidate: Record<string, any>, turns: Turn[]) {
     `Overall score ${overallScore}/10, accuracy ${accuracy}%.`,
   ].join("\n\n");
 
-  let ai: Record<string, unknown> = {};
+  let ai: any = {};
   try {
     ai = await callGemini(system, user);
   } catch {
@@ -407,7 +404,7 @@ export const Route = createFileRoute("/api/interview")({
 
         const turns = (existing.turns ?? []) as Turn[];
         const pending = existing.pending as Pending | null;
-        const candidate = existing.candidate as Record<string, any>;
+        const candidate = existing.candidate as any;
         const message = str(body?.message);
 
         // Explicit end-interview request
