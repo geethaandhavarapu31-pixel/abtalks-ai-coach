@@ -142,9 +142,35 @@ function targetDifficulty(lastScore: number | null): Difficulty {
   return "Moderate";
 }
 
+export type PriorAttempt = {
+  attemptId: string;
+  attemptNumber: number;
+  overallScore: number;
+  accuracy: number;
+  topicPerformance: { topic: string; accuracy: number; questions: number; averageScore: number }[];
+  questions: { question: string; topic: string; score: number }[];
+  missingConcepts: string[];
+};
+
+function priorBrief(prior: PriorAttempt | null): string {
+  if (!prior) return "";
+  return [
+    `PREVIOUS ATTEMPT (${prior.attemptId}) — overall ${prior.overallScore}/10, accuracy ${prior.accuracy}%.`,
+    `PREVIOUS TOPIC ACCURACY:\n${prior.topicPerformance
+      .map((t) => `- ${t.topic}: ${t.accuracy}%`)
+      .join("\n")}`,
+    `PREVIOUSLY ASKED QUESTIONS (NEVER repeat these, ask NEW different questions):\n${prior.questions
+      .map((q) => `- [${q.topic}] ${q.question} (scored ${q.score}/10)`)
+      .join("\n")}`,
+    `MISSING CONCEPTS FROM LAST TIME (focus here):\n${prior.missingConcepts.join(", ") || "none"}`,
+    "This is a RETAKE. Prioritise the weakest previous topics, ask DIFFERENT questions that probe the same weak areas from another angle, and stay strictly inside the candidate's domain, curriculum and completed topics. Difficulty must remain Basic/Easy/Moderate.",
+  ].join("\n\n");
+}
+
 async function generateQuestion(
   candidate: any,
   turns: Turn[],
+  prior: PriorAttempt | null = null,
 ): Promise<Pending> {
   const last = turns.length ? turns[turns.length - 1]! : undefined;
   const lastScore = last ? last.evaluation.score : null;
@@ -154,11 +180,12 @@ async function generateQuestion(
     "You are AB Talks, an AI technical interviewer. You ask ONE question at a time. " +
     "Questions must come ONLY from the candidate's own domain, completed curriculum topics, tools and objectives supplied to you. " +
     "Never invent topics outside the supplied data. Allowed difficulty values are exactly: Basic, Easy, Moderate. " +
-    "Never ask advanced/expert questions. Never repeat a previously asked question. " +
+    "Never ask advanced/expert questions. Never repeat a previously asked question from this attempt or a previous attempt. " +
     'Reply with JSON only: {"question": string, "topic": string, "difficulty": "Basic"|"Easy"|"Moderate"}';
 
   const user = [
     `CANDIDATE DATA:\n${candidateBrief(candidate)}`,
+    priorBrief(prior),
     `ALREADY ASKED (do not repeat):\n${
       turns.map((t) => `- [${t.topic}] ${t.question} (score ${t.evaluation.score}/10)`).join("\n") ||
       "- none"
@@ -173,7 +200,9 @@ async function generateQuestion(
         }`
       : "This is question 1: ask a simple fundamental question from a completed topic.",
     `Target difficulty: ${difficulty}. Question number ${turns.length + 1} of at least ${PRIMARY_QUESTIONS}. Try to cover at least 4 different topics across the interview.`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const out = await callGemini(system, user);
   return {
@@ -183,6 +212,7 @@ async function generateQuestion(
     difficulty: clampDifficulty(out.difficulty ?? difficulty),
   };
 }
+
 
 async function evaluateAnswer(
   candidate: any,
