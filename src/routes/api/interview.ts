@@ -588,6 +588,12 @@ export const Route = createFileRoute("/api/interview")({
         const pending = existing.pending as Pending | null;
         const candidate = existing.candidate as any;
         const message = str(body?.message);
+        const { prior: activePrior } = await fetchPrior(
+          supabase,
+          (existing as any).candidate_id ?? candidate?.id ?? null,
+          (existing as any).attempt_number ?? 1,
+        );
+
 
         // Explicit end-interview request
         if (body?.end === true) {
