@@ -17,7 +17,9 @@ export type Database = {
       interview_attempts: {
         Row: {
           attempt_id: string
+          attempt_number: number
           candidate: Json
+          candidate_id: string | null
           created_at: string
           feedback: Json | null
           id: string
@@ -30,7 +32,9 @@ export type Database = {
         }
         Insert: {
           attempt_id: string
+          attempt_number?: number
           candidate: Json
+          candidate_id?: string | null
           created_at?: string
           feedback?: Json | null
           id?: string
@@ -43,7 +47,9 @@ export type Database = {
         }
         Update: {
           attempt_id?: string
+          attempt_number?: number
           candidate?: Json
+          candidate_id?: string | null
           created_at?: string
           feedback?: Json | null
           id?: string
