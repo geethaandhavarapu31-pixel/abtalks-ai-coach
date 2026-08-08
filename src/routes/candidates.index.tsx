@@ -4,7 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 
-export const Route = createFileRoute("/candidates")({
+export const Route = createFileRoute("/candidates/")({
   head: () => ({
     meta: [
       { title: "Select a Candidate — AB Talks" },
