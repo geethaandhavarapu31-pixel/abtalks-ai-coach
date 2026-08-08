@@ -40,6 +40,8 @@ function InterviewPage() {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRetake, setIsRetake] = useState(false);
+  const [attemptNumber, setAttemptNumber] = useState(1);
   const started = useRef(false);
 
   const post = useCallback(async (body: Record<string, unknown>) => {
