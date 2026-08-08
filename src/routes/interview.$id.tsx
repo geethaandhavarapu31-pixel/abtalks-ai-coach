@@ -138,6 +138,11 @@ function InterviewPage() {
           <p className="text-sm">
             <span className="text-muted-foreground">Candidate: </span>
             <span className="font-medium">{candidate.name}</span>
+            {isRetake && (
+              <span className="ml-2 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em] text-primary uppercase">
+                Retake · Attempt {attemptNumber}
+              </span>
+            )}
           </p>
           <p className="text-xs text-muted-foreground">
             Question {number} / {TOTAL}
