@@ -683,7 +683,7 @@ export const Route = createFileRoute("/api/interview")({
 
         let nextPending: Pending;
         try {
-          nextPending = await generateQuestion(candidate, newTurns);
+          nextPending = await generateQuestion(candidate, newTurns, activePrior);
         } catch (e) {
           // Answer + score are kept; the candidate can retry generating the next question.
           await supabase
