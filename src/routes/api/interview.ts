@@ -527,15 +527,31 @@ export const Route = createFileRoute("/api/interview")({
           if (!body?.candidate) return json({ error: "candidate is required to start" }, 400);
           const attemptId =
             str(body?.attemptId) || `ATT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const candidateId = str(body?.candidateId) || str(body?.candidate?.id) || null;
+
+          // Count previous attempts for this candidate — the first attempt is never overwritten.
+          let attemptNumber = 1;
+          let prior: PriorAttempt | null = null;
+          if (candidateId) {
+            const { count } = await supabase
+              .from("interview_attempts")
+              .select("id", { count: "exact", head: true })
+              .eq("candidate_id", candidateId);
+            attemptNumber = (count ?? 0) + 1;
+            prior = (await fetchPrior(supabase, candidateId, attemptNumber)).prior;
+          }
+
           let pending: Pending;
           try {
-            pending = await generateQuestion(body.candidate, []);
+            pending = await generateQuestion(body.candidate, [], prior);
           } catch (e) {
             return json({ error: (e as Error).message }, 502);
           }
           const { error } = await supabase.from("interview_attempts").insert({
             session_id: sessionId,
             attempt_id: attemptId,
+            candidate_id: candidateId,
+            attempt_number: attemptNumber,
             candidate: body.candidate,
             turns: [],
             pending,
@@ -549,11 +565,14 @@ export const Route = createFileRoute("/api/interview")({
             done: false,
             sessionId,
             attemptId,
+            attemptNumber,
+            isRetake: attemptNumber > 1,
             question: pending,
             questionNumber: 1,
             totalQuestions: PRIMARY_QUESTIONS,
           });
         }
+
 
         if (existing.status === "completed") {
           return json({
