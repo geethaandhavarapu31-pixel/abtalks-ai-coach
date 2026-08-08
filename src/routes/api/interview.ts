@@ -142,9 +142,35 @@ function targetDifficulty(lastScore: number | null): Difficulty {
   return "Moderate";
 }
 
+export type PriorAttempt = {
+  attemptId: string;
+  attemptNumber: number;
+  overallScore: number;
+  accuracy: number;
+  topicPerformance: { topic: string; accuracy: number; questions: number; averageScore: number }[];
+  questions: { question: string; topic: string; score: number }[];
+  missingConcepts: string[];
+};
+
+function priorBrief(prior: PriorAttempt | null): string {
+  if (!prior) return "";
+  return [
+    `PREVIOUS ATTEMPT (${prior.attemptId}) — overall ${prior.overallScore}/10, accuracy ${prior.accuracy}%.`,
+    `PREVIOUS TOPIC ACCURACY:\n${prior.topicPerformance
+      .map((t) => `- ${t.topic}: ${t.accuracy}%`)
+      .join("\n")}`,
+    `PREVIOUSLY ASKED QUESTIONS (NEVER repeat these, ask NEW different questions):\n${prior.questions
+      .map((q) => `- [${q.topic}] ${q.question} (scored ${q.score}/10)`)
+      .join("\n")}`,
+    `MISSING CONCEPTS FROM LAST TIME (focus here):\n${prior.missingConcepts.join(", ") || "none"}`,
+    "This is a RETAKE. Prioritise the weakest previous topics, ask DIFFERENT questions that probe the same weak areas from another angle, and stay strictly inside the candidate's domain, curriculum and completed topics. Difficulty must remain Basic/Easy/Moderate.",
+  ].join("\n\n");
+}
+
 async function generateQuestion(
   candidate: any,
   turns: Turn[],
+  prior: PriorAttempt | null = null,
 ): Promise<Pending> {
   const last = turns.length ? turns[turns.length - 1]! : undefined;
   const lastScore = last ? last.evaluation.score : null;
@@ -154,11 +180,12 @@ async function generateQuestion(
     "You are AB Talks, an AI technical interviewer. You ask ONE question at a time. " +
     "Questions must come ONLY from the candidate's own domain, completed curriculum topics, tools and objectives supplied to you. " +
     "Never invent topics outside the supplied data. Allowed difficulty values are exactly: Basic, Easy, Moderate. " +
-    "Never ask advanced/expert questions. Never repeat a previously asked question. " +
+    "Never ask advanced/expert questions. Never repeat a previously asked question from this attempt or a previous attempt. " +
     'Reply with JSON only: {"question": string, "topic": string, "difficulty": "Basic"|"Easy"|"Moderate"}';
 
   const user = [
     `CANDIDATE DATA:\n${candidateBrief(candidate)}`,
+    priorBrief(prior),
     `ALREADY ASKED (do not repeat):\n${
       turns.map((t) => `- [${t.topic}] ${t.question} (score ${t.evaluation.score}/10)`).join("\n") ||
       "- none"
@@ -173,7 +200,9 @@ async function generateQuestion(
         }`
       : "This is question 1: ask a simple fundamental question from a completed topic.",
     `Target difficulty: ${difficulty}. Question number ${turns.length + 1} of at least ${PRIMARY_QUESTIONS}. Try to cover at least 4 different topics across the interview.`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const out = await callGemini(system, user);
   return {
@@ -183,6 +212,7 @@ async function generateQuestion(
     difficulty: clampDifficulty(out.difficulty ?? difficulty),
   };
 }
+
 
 async function evaluateAnswer(
   candidate: any,
@@ -317,6 +347,117 @@ async function db() {
   return supabaseAdmin;
 }
 
+function rowToPrior(row: any): PriorAttempt | null {
+  if (!row || !row.feedback) return null;
+  const turns = (row.turns ?? []) as Turn[];
+  return {
+    attemptId: row.attempt_id,
+    attemptNumber: row.attempt_number ?? 1,
+    overallScore: row.feedback.overallScore ?? 0,
+    accuracy: row.feedback.accuracy ?? 0,
+    topicPerformance: row.feedback.topicPerformance ?? [],
+    questions: turns.map((t) => ({
+      question: t.question,
+      topic: t.topic,
+      score: t.evaluation?.score ?? 0,
+    })),
+    missingConcepts: Array.from(
+      new Set(turns.flatMap((t) => t.evaluation?.missingConcepts ?? [])),
+    ).slice(0, 12),
+  };
+}
+
+async function fetchPrior(
+  supabase: any,
+  candidateId: string | null,
+  attemptNumber: number,
+): Promise<{ prior: PriorAttempt | null; row: any }> {
+  if (!candidateId || attemptNumber <= 1) return { prior: null, row: null };
+  const { data } = await supabase
+    .from("interview_attempts")
+    .select("*")
+    .eq("candidate_id", candidateId)
+    .eq("status", "completed")
+    .lt("attempt_number", attemptNumber)
+    .order("attempt_number", { ascending: false })
+    .limit(1);
+  const row = data?.[0] ?? null;
+  return { prior: rowToPrior(row), row };
+}
+
+function round1(n: number) {
+  return Math.round(n * 10) / 10;
+}
+
+function buildComparison(firstRow: any, currentRow: any) {
+  const first = firstRow?.feedback;
+  const current = currentRow?.feedback;
+  if (!first || !current) return null;
+
+  const firstTopics: any[] = first.topicPerformance ?? [];
+  const currentTopics: any[] = current.topicPerformance ?? [];
+  const byTopic = new Map(firstTopics.map((t) => [t.topic, t]));
+
+  const topicComparison = currentTopics
+    .filter((t) => byTopic.has(t.topic))
+    .map((t) => {
+      const prev = byTopic.get(t.topic)!;
+      return {
+        topic: t.topic,
+        firstAccuracy: prev.accuracy,
+        retakeAccuracy: t.accuracy,
+        change: t.accuracy - prev.accuracy,
+      };
+    })
+    .sort((a, b) => b.change - a.change);
+
+  const mostImproved = topicComparison.length && topicComparison[0]!.change > 0 ? topicComparison[0] : null;
+  const weakest = currentTopics.length
+    ? [...currentTopics].sort((a, b) => a.accuracy - b.accuracy)[0]
+    : null;
+
+  const scoreImprovement = round1((current.overallScore ?? 0) - (first.overallScore ?? 0));
+  const accuracyImprovement = (current.accuracy ?? 0) - (first.accuracy ?? 0);
+
+  const acc = current.accuracy ?? 0;
+  const status =
+    acc >= 80
+      ? "STRONG CANDIDATE"
+      : accuracyImprovement > 0 && acc >= 60
+        ? "GOOD PROGRESS"
+        : acc >= 50
+          ? "NEEDS IMPROVEMENT"
+          : "KEEP PRACTICING";
+
+  return {
+    first: {
+      attemptId: firstRow.attempt_id,
+      attemptNumber: firstRow.attempt_number ?? 1,
+      overallScore: first.overallScore,
+      accuracy: first.accuracy,
+    },
+    retake: {
+      attemptId: currentRow.attempt_id,
+      attemptNumber: currentRow.attempt_number ?? 2,
+      overallScore: current.overallScore,
+      accuracy: current.accuracy,
+    },
+    scoreImprovement,
+    accuracyImprovement,
+    topicComparison,
+    mostImproved,
+    weakest,
+    status,
+  };
+}
+
+function finalStatus(accuracy: number) {
+  if (accuracy >= 80) return "STRONG CANDIDATE";
+  if (accuracy >= 65) return "GOOD PROGRESS";
+  if (accuracy >= 50) return "NEEDS IMPROVEMENT";
+  return "KEEP PRACTICING";
+}
+
 export const Route = createFileRoute("/api/interview")({
   server: {
     handlers: {
@@ -331,15 +472,37 @@ export const Route = createFileRoute("/api/interview")({
           .maybeSingle();
         if (error) return json({ error: error.message }, 500);
         if (!data) return json({ error: "Session not found" }, 404);
+
+        const { row: priorRow } = await fetchPrior(
+          supabase,
+          (data as any).candidate_id ?? (data.candidate as any)?.id ?? null,
+          (data as any).attempt_number ?? 1,
+        );
+
         return json({
           sessionId: data.session_id,
           attemptId: data.attempt_id,
+          attemptNumber: (data as any).attempt_number ?? 1,
+          candidateId: (data as any).candidate_id ?? (data.candidate as any)?.id ?? null,
           candidate: data.candidate,
           turns: data.turns,
           status: data.status,
           feedback: data.feedback,
+          finalStatus: data.feedback ? finalStatus((data.feedback as any).accuracy ?? 0) : null,
+          previousAttempt: priorRow
+            ? {
+                attemptId: priorRow.attempt_id,
+                attemptNumber: priorRow.attempt_number ?? 1,
+                sessionId: priorRow.session_id,
+                overallScore: priorRow.feedback?.overallScore ?? 0,
+                accuracy: priorRow.feedback?.accuracy ?? 0,
+                topicPerformance: priorRow.feedback?.topicPerformance ?? [],
+              }
+            : null,
+          comparison: buildComparison(priorRow, data),
         });
       },
+
 
       POST: async ({ request }) => {
         let body: any;
@@ -364,15 +527,31 @@ export const Route = createFileRoute("/api/interview")({
           if (!body?.candidate) return json({ error: "candidate is required to start" }, 400);
           const attemptId =
             str(body?.attemptId) || `ATT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const candidateId = str(body?.candidateId) || str(body?.candidate?.id) || null;
+
+          // Count previous attempts for this candidate — the first attempt is never overwritten.
+          let attemptNumber = 1;
+          let prior: PriorAttempt | null = null;
+          if (candidateId) {
+            const { count } = await supabase
+              .from("interview_attempts")
+              .select("id", { count: "exact", head: true })
+              .eq("candidate_id", candidateId);
+            attemptNumber = (count ?? 0) + 1;
+            prior = (await fetchPrior(supabase, candidateId, attemptNumber)).prior;
+          }
+
           let pending: Pending;
           try {
-            pending = await generateQuestion(body.candidate, []);
+            pending = await generateQuestion(body.candidate, [], prior);
           } catch (e) {
             return json({ error: (e as Error).message }, 502);
           }
           const { error } = await supabase.from("interview_attempts").insert({
             session_id: sessionId,
             attempt_id: attemptId,
+            candidate_id: candidateId,
+            attempt_number: attemptNumber,
             candidate: body.candidate,
             turns: [],
             pending,
@@ -386,11 +565,14 @@ export const Route = createFileRoute("/api/interview")({
             done: false,
             sessionId,
             attemptId,
+            attemptNumber,
+            isRetake: attemptNumber > 1,
             question: pending,
             questionNumber: 1,
             totalQuestions: PRIMARY_QUESTIONS,
           });
         }
+
 
         if (existing.status === "completed") {
           return json({
@@ -406,6 +588,12 @@ export const Route = createFileRoute("/api/interview")({
         const pending = existing.pending as Pending | null;
         const candidate = existing.candidate as any;
         const message = str(body?.message);
+        const { prior: activePrior } = await fetchPrior(
+          supabase,
+          (existing as any).candidate_id ?? candidate?.id ?? null,
+          (existing as any).attempt_number ?? 1,
+        );
+
 
         // Explicit end-interview request
         if (body?.end === true) {
@@ -495,7 +683,7 @@ export const Route = createFileRoute("/api/interview")({
 
         let nextPending: Pending;
         try {
-          nextPending = await generateQuestion(candidate, newTurns);
+          nextPending = await generateQuestion(candidate, newTurns, activePrior);
         } catch (e) {
           // Answer + score are kept; the candidate can retry generating the next question.
           await supabase

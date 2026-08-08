@@ -40,6 +40,8 @@ function InterviewPage() {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRetake, setIsRetake] = useState(false);
+  const [attemptNumber, setAttemptNumber] = useState(1);
   const started = useRef(false);
 
   const post = useCallback(async (body: Record<string, unknown>) => {
@@ -65,10 +67,13 @@ function InterviewPage() {
       const data = await post({
         sessionId: sid,
         attemptId,
+        candidateId: candidate.id,
         candidate: { ...candidate, raw: undefined },
       });
       setSessionId(sid);
       setQuestion(data.question);
+      setIsRetake(Boolean(data.isRetake));
+      setAttemptNumber(data.attemptNumber ?? 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -133,6 +138,11 @@ function InterviewPage() {
           <p className="text-sm">
             <span className="text-muted-foreground">Candidate: </span>
             <span className="font-medium">{candidate.name}</span>
+            {isRetake && (
+              <span className="ml-2 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em] text-primary uppercase">
+                Retake · Attempt {attemptNumber}
+              </span>
+            )}
           </p>
           <p className="text-xs text-muted-foreground">
             Question {number} / {TOTAL}
