@@ -65,10 +65,13 @@ function InterviewPage() {
       const data = await post({
         sessionId: sid,
         attemptId,
+        candidateId: candidate.id,
         candidate: { ...candidate, raw: undefined },
       });
       setSessionId(sid);
       setQuestion(data.question);
+      setIsRetake(Boolean(data.isRetake));
+      setAttemptNumber(data.attemptNumber ?? 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
