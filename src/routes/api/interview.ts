@@ -92,19 +92,21 @@ async function callGemini(system: string, user: string): Promise<any> {
       }),
     });
 
-    if (res.status === 429) {
-      throw new Error(
-        "Gemini rate limit reached. Please retry in a moment."
-      );
-    }
+ if (res.status === 429) {
+  throw new Error(
+    "Gemini rate limit reached. Please retry in a moment."
+  );
+}
 
-    if (!res.ok) {
-      const errorText = await res.text();
+if (!res.ok) {
+  const errorText = await res.text();
 
-      lastError = `Gemini request failed [${res.status}]: ${errorText}`;
+  lastError = `Gemini request failed [${res.status}]: ${errorText}`;
 
-      continue;
-    }
+  continue;
+}
+
+const payload = await res.json();
 
     const payload = await res.json();
 
