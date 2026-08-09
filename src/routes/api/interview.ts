@@ -728,20 +728,31 @@ export const Route = createFileRoute("/api/interview")({
 
         // Explicit end-interview request
         if (body?.end === true) {
-          const feedback = turns.length
-            ? await buildFeedback(candidate, turns)
-            : {
-                summary: "The interview was ended before any question was answered.",
-                strengths: [],
-                gaps: [],
-                next: [],
-                topicsToImprove: [],
-                plan: [],
-                overallScore: 0,
-                accuracy: 0,
-                topicPerformance: [],
-                mistakes: [],
-              };
+          let feedback;
+          try {
+            feedback = turns.length
+              ? await buildFeedback(candidate, turns)
+              : {
+                  summary: "The interview was ended before any question was answered.",
+                  strengths: [],
+                  gaps: [],
+                  next: [],
+                  topicsToImprove: [],
+                  plan: [],
+                  overallScore: 0,
+                  accuracy: 0,
+                  topicPerformance: [],
+                  mistakes: [],
+                };
+          } catch (e) {
+            // Keep the session open so the candidate can retry ending it later.
+            return aiErrorResponse(e, {
+              sessionId,
+              answered: turns.length,
+              question: pending,
+            });
+          }
+
           await supabase
             .from("interview_attempts")
             .update({ status: "completed", feedback, pending: null, updated_at: new Date().toISOString() })
