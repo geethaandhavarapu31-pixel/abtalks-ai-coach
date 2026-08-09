@@ -39,7 +39,9 @@ function InterviewPage() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; code?: string; resumable?: boolean } | null>(
+    null,
+  );
   const [isRetake, setIsRetake] = useState(false);
   const [attemptNumber, setAttemptNumber] = useState(1);
   const started = useRef(false);
@@ -50,10 +52,23 @@ function InterviewPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "The AI service is unavailable. Please retry.");
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      const err = new Error(
+        data?.error || "The AI interviewer is temporarily unavailable. Your progress is saved.",
+      ) as Error & { code?: string; resumable?: boolean };
+      if (data?.code) err.code = data.code;
+      err.resumable = data?.resumable !== false;
+      throw err;
+    }
     return data;
   }, []);
+
 
   const start = useCallback(async () => {
     setBusy(true);
