@@ -136,16 +136,21 @@ async function callGemini(system: string, user: string): Promise<any> {
       const message =
         error instanceof Error ? error.message : String(error);
 
-      console.error("Gemini fetch error:", message);
+      console.error("AI error:", message);
 
-      lastError = `Gemini connection failed: ${message}`;
+      // Terminal errors: surface as-is, no retry, no wrapping
+      if (/credits|rate limit/i.test(message)) {
+        throw error instanceof Error ? error : new Error(message);
+      }
+
+      lastError = `AI connection failed: ${message}`;
 
       // Retry once
       if (attempt === 0) {
-        console.log("Retrying Gemini request...");
         continue;
       }
     }
+
   }
 
   throw new Error(lastError || "Gemini request failed");
