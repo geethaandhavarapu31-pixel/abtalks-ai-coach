@@ -607,7 +607,7 @@ export const Route = createFileRoute("/api/interview")({
           try {
             pending = await generateQuestion(body.candidate, [], prior);
           } catch (e) {
-            return json({ error: (e as Error).message }, 502);
+            return json({ error: (e as Error).message }, aiStatus((e as Error).message));
           }
           const { error } = await supabase.from("interview_attempts").insert({
             session_id: sessionId,
@@ -701,7 +701,7 @@ export const Route = createFileRoute("/api/interview")({
               questionNumber: pending.index,
               totalQuestions: PRIMARY_QUESTIONS,
             },
-            502,
+            aiStatus((e as Error).message),
           );
         }
 
@@ -757,7 +757,7 @@ export const Route = createFileRoute("/api/interview")({
               updated_at: new Date().toISOString(),
             })
             .eq("session_id", sessionId);
-          return json({ error: (e as Error).message, retryable: true, evaluation }, 502);
+          return json({ error: (e as Error).message, retryable: true, evaluation }, aiStatus((e as Error).message));
         }
 
         await supabase
