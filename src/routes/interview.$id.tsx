@@ -9,6 +9,15 @@ import { Loader2, AlertTriangle } from "lucide-react";
 
 const TOTAL = 8;
 
+function toError(e: unknown) {
+  const err = e as Error & { code?: string; resumable?: boolean };
+  return {
+    message: err?.message || "Something went wrong. Your progress is saved.",
+    code: err?.code,
+    resumable: err?.resumable !== false,
+  };
+}
+
 type Question = { index: number; question: string; topic: string; difficulty: string };
 
 export const Route = createFileRoute("/interview/$id")({
@@ -90,7 +99,7 @@ function InterviewPage() {
       setIsRetake(Boolean(data.isRetake));
       setAttemptNumber(data.attemptNumber ?? 1);
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
     } finally {
       setBusy(false);
     }
@@ -115,7 +124,7 @@ function InterviewPage() {
       }
       setQuestion(data.question);
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
     } finally {
       setBusy(false);
     }
@@ -129,7 +138,7 @@ function InterviewPage() {
       await post({ sessionId, end: true });
       navigate({ to: "/feedback/$sessionId", params: { sessionId } });
     } catch (e) {
-      setError((e as Error).message);
+      setError(toError(e));
       setBusy(false);
     }
   }
