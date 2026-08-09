@@ -117,7 +117,8 @@ async function callGemini(system: string, user: string): Promise<any> {
           : cleaned
       );
     } catch {
-      lastError = "Gemini returned invalid JSON";
+      console.error("GEMINI ERROR:", res.status, errorText);
+      lastError = `Gemini request failed [${res.status}]: ${errorText}`;
     }
   }
 
