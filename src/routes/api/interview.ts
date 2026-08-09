@@ -6,8 +6,6 @@ import { createFileRoute } from "@tanstack/react-router";
  *   turn:  { sessionId, message }
  * GET  /api/interview?sessionId=...  — full stored report (used by the feedback page)
  */
-
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MODEL = "google/gemini-3.6-flash";
 export const PRIMARY_QUESTIONS = 8;
 
@@ -49,53 +47,72 @@ function json(body: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
-
 async function callGemini(system: string, user: string): Promise<any> {
-  const key = process.env["LOVABLE_API_KEY"];
-  if (!key) throw new Error("AI is not configured");
+  const key = process.env["GEMINI_API_KEY"];
+
+  if (!key) {
+    throw new Error("Gemini API is not configured");
+  }
+
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
 
   let lastError = "";
+
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(GATEWAY, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
+        systemInstruction: {
+          parts: [{ text: system }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: user }],
+          },
         ],
-        response_format: { type: "json_object" },
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
       }),
     });
 
-    if (res.status === 429) throw new Error("AI rate limit reached. Please retry in a moment.");
-    if (res.status === 402) throw new Error("AI credits exhausted for this workspace.");
+    if (res.status === 429) {
+      throw new Error("Gemini rate limit reached. Please retry in a moment.");
+    }
+
     if (!res.ok) {
-      lastError = `AI request failed [${res.status}]: ${await res.text()}`;
+      lastError = `Gemini request failed [${res.status}]: ${await res.text()}`;
       continue;
     }
 
-    const payload = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const text = payload.choices?.[0]?.message?.content ?? "";
+    const payload = await res.json();
+
+    const text =
+      payload?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
     const cleaned = text
       .replace(/^```(?:json)?/i, "")
       .replace(/```$/, "")
       .trim();
+
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
+
     try {
-      return JSON.parse(start >= 0 ? cleaned.slice(start, end + 1) : cleaned);
+      return JSON.parse(
+        start >= 0 ? cleaned.slice(start, end + 1) : cleaned
+      );
     } catch {
-      lastError = "AI returned invalid JSON";
+      lastError = "Gemini returned invalid JSON";
     }
   }
-  throw new Error(lastError || "AI request failed");
+
+  throw new Error(lastError || "Gemini request failed");
 }
 
 function str(v: unknown, fallback = ""): string {
