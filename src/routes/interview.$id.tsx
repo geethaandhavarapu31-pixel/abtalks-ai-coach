@@ -48,9 +48,11 @@ function InterviewPage() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<{ message: string; code?: string; resumable?: boolean } | null>(
-    null,
-  );
+  const [error, setError] = useState<{
+    message: string;
+    code?: string | undefined;
+    resumable?: boolean;
+  } | null>(null);
   const [isRetake, setIsRetake] = useState(false);
   const [attemptNumber, setAttemptNumber] = useState(1);
   const started = useRef(false);
