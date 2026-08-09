@@ -764,8 +764,25 @@ export const Route = createFileRoute("/api/interview")({
         // exhausted). Resume the same session instead of failing — nothing is lost.
         if (!pending) {
           if (turns.length >= PRIMARY_QUESTIONS) {
-            return json({ error: "Interview already answered — request feedback." }, 409);
+            // All questions answered but the report failed earlier — finish it now.
+            let feedback;
+            try {
+              feedback = await buildFeedback(candidate, turns);
+            } catch (e) {
+              return aiErrorResponse(e, { sessionId, answered: turns.length });
+            }
+            await supabase
+              .from("interview_attempts")
+              .update({
+                status: "completed",
+                feedback,
+                pending: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("session_id", sessionId);
+            return json({ reply: "Interview completed.", done: true, sessionId, feedback });
           }
+
           let resumed: Pending;
           try {
             resumed = await generateQuestion(candidate, turns, activePrior);
