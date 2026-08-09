@@ -211,10 +211,21 @@ function InterviewPage() {
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive-foreground">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
-              <p>{error}</p>
-              <p className="mt-1 text-muted-foreground">
-                Your answer was saved. You can submit again to retry — the interview will not reset.
+              <p className="font-medium">
+                {error.code === "ALLOWANCE_EXHAUSTED"
+                  ? "AI allowance used up"
+                  : error.code === "RATE_LIMITED"
+                    ? "AI is busy right now"
+                    : "AI interviewer temporarily unavailable"}
               </p>
+              <p className="mt-1">{error.message}</p>
+              {error.resumable && (
+                <p className="mt-1 text-muted-foreground">
+                  Nothing is lost — your answers and score so far are saved. Press{" "}
+                  {question ? "Submit answer" : "Continue interview"} to pick up exactly where you
+                  left off.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -223,6 +234,11 @@ function InterviewPage() {
           <Button onClick={submit} disabled={busy || !question} className="px-8 font-semibold">
             {busy ? "PLEASE WAIT…" : "SUBMIT ANSWER"}
           </Button>
+          {sessionId && !question && !busy && (
+            <Button onClick={submit} className="px-8 font-semibold">
+              CONTINUE INTERVIEW
+            </Button>
+          )}
           <Button variant="outline" onClick={endInterview} disabled={busy || !sessionId}>
             END INTERVIEW
           </Button>
@@ -231,6 +247,7 @@ function InterviewPage() {
               Retry start
             </Button>
           )}
+
           <Link
             to="/candidates/$id"
             params={{ id }}
