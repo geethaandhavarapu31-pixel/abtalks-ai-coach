@@ -848,7 +848,12 @@ export const Route = createFileRoute("/api/interview")({
               updated_at: new Date().toISOString(),
             })
             .eq("session_id", sessionId);
-          return json({ error: (e as Error).message, retryable: true, evaluation }, aiStatus((e as Error).message));
+          return aiErrorResponse(e, {
+            sessionId,
+            answered: newTurns.length,
+            evaluation,
+          });
+
         }
 
         await supabase
