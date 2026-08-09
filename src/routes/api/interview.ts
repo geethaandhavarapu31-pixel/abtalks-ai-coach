@@ -749,7 +749,33 @@ export const Route = createFileRoute("/api/interview")({
           return json({ reply: "Interview completed.", done: true, sessionId, feedback });
         }
 
-        if (!pending) return json({ error: "No active question for this session" }, 409);
+        // No active question: a previous next-question generation failed (e.g. allowance
+        // exhausted). Resume the same session instead of failing — nothing is lost.
+        if (!pending) {
+          if (turns.length >= PRIMARY_QUESTIONS) {
+            return json({ error: "Interview already answered — request feedback." }, 409);
+          }
+          let resumed: Pending;
+          try {
+            resumed = await generateQuestion(candidate, turns, activePrior);
+          } catch (e) {
+            return aiErrorResponse(e, { sessionId, answered: turns.length });
+          }
+          await supabase
+            .from("interview_attempts")
+            .update({ pending: resumed, updated_at: new Date().toISOString() })
+            .eq("session_id", sessionId);
+          return json({
+            reply: resumed.question,
+            done: false,
+            resumed: true,
+            sessionId,
+            attemptId: existing.attempt_id,
+            question: resumed,
+            questionNumber: resumed.index,
+            totalQuestions: PRIMARY_QUESTIONS,
+          });
+        }
 
         // 1. Save the answer BEFORE evaluating so a failure never loses it.
         await supabase
@@ -762,17 +788,13 @@ export const Route = createFileRoute("/api/interview")({
         try {
           evaluation = await evaluateAnswer(candidate, pending, message);
         } catch (e) {
-          return json(
-            {
-              error: (e as Error).message,
-              retryable: true,
-              question: pending,
-              questionNumber: pending.index,
-              totalQuestions: PRIMARY_QUESTIONS,
-            },
-            aiStatus((e as Error).message),
-          );
+          return aiErrorResponse(e, {
+            sessionId,
+            answered: turns.length,
+            question: pending,
+          });
         }
+
 
         // 3. Save score + topic performance
         const newTurns: Turn[] = [
