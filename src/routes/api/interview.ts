@@ -6,7 +6,7 @@ import { createFileRoute } from "@tanstack/react-router";
  *   turn:  { sessionId, message }
  * GET  /api/interview?sessionId=...  — full stored report (used by the feedback page)
  */
-const MODEL = "google/gemini-3.6-flash";
+const MODEL = "gemini-3.6-flash";
 export const PRIMARY_QUESTIONS = 8;
 
 type Difficulty = "Basic" | "Easy" | "Moderate";
@@ -47,43 +47,32 @@ function json(body: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
-const MODEL = "gemini-2.5-flash";
-
 async function callGemini(system: string, user: string): Promise<any> {
-  const key = process.env["GEMINI_API_KEY"];
+  const key = process.env.GEMINI_API_KEY;
 
   if (!key) {
-    throw new Error("Gemini API is not configured");
+    throw new Error("GEMINI_API_KEY is not configured");
   }
-
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
   let lastError = "";
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
+
     const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-goog-api-key": key,
       },
       body: JSON.stringify({
         systemInstruction: {
-          parts: [
-            {
-              text: system,
-            },
-          ],
+          parts: [{ text: system }],
         },
         contents: [
           {
             role: "user",
-            parts: [
-              {
-                text: user,
-              },
-            ],
+            parts: [{ text: user }],
           },
         ],
         generationConfig: {
@@ -92,21 +81,15 @@ async function callGemini(system: string, user: string): Promise<any> {
       }),
     });
 
- if (res.status === 429) {
-  throw new Error(
-    "Gemini rate limit reached. Please retry in a moment."
-  );
-}
+    if (res.status === 429) {
+      throw new Error("Gemini rate limit reached. Please try again.");
+    }
 
-if (!res.ok) {
-  const errorText = await res.text();
-
-  lastError = `Gemini request failed [${res.status}]: ${errorText}`;
-
-  continue;
-}
-
-const payload = await res.json();
+    if (!res.ok) {
+      const errorText = await res.text();
+      lastError = `Gemini request failed [${res.status}]: ${errorText}`;
+      continue;
+    }
 
     const payload = await res.json();
 
@@ -114,11 +97,13 @@ const payload = await res.json();
       payload?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
     if (!text) {
-      throw new Error("Gemini returned an empty response");
+      lastError = "Gemini returned an empty response";
+      continue;
     }
 
     const cleaned = text
-      .replace(/^```(?:json)?/i, "")
+      .replace(/^```json/i, "")
+      .replace(/^```/i, "")
       .replace(/```$/i, "")
       .trim();
 
@@ -127,7 +112,7 @@ const payload = await res.json();
 
     try {
       return JSON.parse(
-        start >= 0
+        start >= 0 && end >= 0
           ? cleaned.slice(start, end + 1)
           : cleaned
       );
