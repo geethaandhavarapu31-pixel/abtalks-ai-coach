@@ -54,77 +54,111 @@ async function callGemini(system: string, user: string): Promise<any> {
     throw new Error("GEMINI_API_KEY is not configured");
   }
 
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
+
   let lastError = "";
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: system }],
-        },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: user }],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
-      }),
-    });
-
-    if (res.status === 429) {
-      throw new Error("Gemini rate limit reached. Please try again.");
-    }
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      lastError = `Gemini request failed [${res.status}]: ${errorText}`;
-      continue;
-    }
-
-    const payload = await res.json();
-
-    const text =
-      payload?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
-    if (!text) {
-      lastError = "Gemini returned an empty response";
-      continue;
-    }
-
-    const cleaned = text
-      .replace(/^```json/i, "")
-      .replace(/^```/i, "")
-      .replace(/```$/i, "")
-      .trim();
-
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-
     try {
-      return JSON.parse(
-        start >= 0 && end >= 0
-          ? cleaned.slice(start, end + 1)
-          : cleaned
-      );
-    } catch {
-      console.error("GEMINI ERROR:", res.status, errorText);
-      lastError = `Gemini request failed [${res.status}]: ${errorText}`;
+      console.log("Calling Gemini...");
+      console.log("Model:", MODEL);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: system }],
+          },
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: user }],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
+        }),
+      });
+
+      console.log("Gemini HTTP status:", res.status);
+
+      const responseText = await res.text();
+
+      if (res.status === 429) {
+        throw new Error(
+          "Gemini rate limit reached. Please try again later."
+        );
+      }
+
+      if (!res.ok) {
+        lastError = `Gemini request failed [${res.status}]: ${responseText}`;
+        console.error(lastError);
+        continue;
+      }
+
+      let payload: any;
+
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        lastError = `Gemini returned invalid JSON: ${responseText}`;
+        console.error(lastError);
+        continue;
+      }
+
+      const text =
+        payload?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+      if (!text) {
+        lastError = "Gemini returned an empty response";
+        console.error("Gemini payload:", payload);
+        continue;
+      }
+
+      const cleaned = text
+        .replace(/^```json/i, "")
+        .replace(/^```/i, "")
+        .replace(/```$/i, "")
+        .trim();
+
+      const start = cleaned.indexOf("{");
+      const end = cleaned.lastIndexOf("}");
+
+      try {
+        return JSON.parse(
+          start >= 0 && end >= 0
+            ? cleaned.slice(start, end + 1)
+            : cleaned
+        );
+      } catch (parseError) {
+        lastError = `Gemini returned invalid JSON content: ${cleaned}`;
+        console.error("JSON parse error:", parseError);
+        console.error("Gemini text:", cleaned);
+        continue;
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+
+      console.error("Gemini fetch error:", message);
+
+      lastError = `Gemini connection failed: ${message}`;
+
+      // Retry once
+      if (attempt === 0) {
+        console.log("Retrying Gemini request...");
+        continue;
+      }
     }
   }
 
   throw new Error(lastError || "Gemini request failed");
 }
-
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" && v.trim() ? v.trim() : fallback;
 }
