@@ -675,8 +675,9 @@ export const Route = createFileRoute("/api/interview")({
           try {
             pending = await generateQuestion(body.candidate, [], prior);
           } catch (e) {
-            return json({ error: (e as Error).message }, aiStatus((e as Error).message));
+            return aiErrorResponse(e, { sessionId, answered: 0 });
           }
+
           const { error } = await supabase.from("interview_attempts").insert({
             session_id: sessionId,
             attempt_id: attemptId,
