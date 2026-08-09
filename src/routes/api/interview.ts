@@ -6,7 +6,7 @@ import { createFileRoute } from "@tanstack/react-router";
  *   turn:  { sessionId, message }
  * GET  /api/interview?sessionId=...  — full stored report (used by the feedback page)
  */
-const MODEL = "gemini-3.6-flash";
+const MODEL = "google/gemini-3.6-flash";
 export const PRIMARY_QUESTIONS = 8;
 
 type Difficulty = "Basic" | "Easy" | "Moderate";
