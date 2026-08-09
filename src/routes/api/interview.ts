@@ -47,6 +47,11 @@ function json(body: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
+function aiStatus(message: string) {
+  if (/credits/i.test(message)) return 402;
+  if (/rate limit/i.test(message)) return 429;
+  return 502;
+}
 async function callGemini(system: string, user: string): Promise<any> {
   const key = process.env['LOVABLE_API_KEY'];
 
@@ -136,16 +141,21 @@ async function callGemini(system: string, user: string): Promise<any> {
       const message =
         error instanceof Error ? error.message : String(error);
 
-      console.error("Gemini fetch error:", message);
+      console.error("AI error:", message);
 
-      lastError = `Gemini connection failed: ${message}`;
+      // Terminal errors: surface as-is, no retry, no wrapping
+      if (/credits|rate limit/i.test(message)) {
+        throw error instanceof Error ? error : new Error(message);
+      }
+
+      lastError = `AI connection failed: ${message}`;
 
       // Retry once
       if (attempt === 0) {
-        console.log("Retrying Gemini request...");
         continue;
       }
     }
+
   }
 
   throw new Error(lastError || "Gemini request failed");
@@ -597,7 +607,7 @@ export const Route = createFileRoute("/api/interview")({
           try {
             pending = await generateQuestion(body.candidate, [], prior);
           } catch (e) {
-            return json({ error: (e as Error).message }, 502);
+            return json({ error: (e as Error).message }, aiStatus((e as Error).message));
           }
           const { error } = await supabase.from("interview_attempts").insert({
             session_id: sessionId,
@@ -691,7 +701,7 @@ export const Route = createFileRoute("/api/interview")({
               questionNumber: pending.index,
               totalQuestions: PRIMARY_QUESTIONS,
             },
-            502,
+            aiStatus((e as Error).message),
           );
         }
 
@@ -747,7 +757,7 @@ export const Route = createFileRoute("/api/interview")({
               updated_at: new Date().toISOString(),
             })
             .eq("session_id", sessionId);
-          return json({ error: (e as Error).message, retryable: true, evaluation }, 502);
+          return json({ error: (e as Error).message, retryable: true, evaluation }, aiStatus((e as Error).message));
         }
 
         await supabase
