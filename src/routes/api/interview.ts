@@ -47,6 +47,11 @@ function json(body: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
+function aiStatus(message: string) {
+  if (/credits/i.test(message)) return 402;
+  if (/rate limit/i.test(message)) return 429;
+  return 502;
+}
 async function callGemini(system: string, user: string): Promise<any> {
   const key = process.env['LOVABLE_API_KEY'];
 
