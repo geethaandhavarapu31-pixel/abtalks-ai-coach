@@ -47,11 +47,79 @@ function json(body: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
-function aiStatus(message: string) {
-  if (/credits/i.test(message)) return 402;
-  if (/rate limit/i.test(message)) return 429;
-  return 502;
+type AiFailure = {
+  code: "ALLOWANCE_EXHAUSTED" | "RATE_LIMITED" | "AI_UNAVAILABLE" | "AI_NOT_CONFIGURED";
+  status: number;
+  message: string;
+};
+
+// Maps a raw AI/gateway error into a stable code + friendly, user-facing message.
+function aiFailure(raw: string): AiFailure {
+  if (/credits|allowance|quota|payment required|402/i.test(raw)) {
+    return {
+      code: "ALLOWANCE_EXHAUSTED",
+      status: 402,
+      message:
+        "The AI allowance for this workspace is used up, so the interviewer can't generate the next step right now. Your interview is saved — add credits in Settings → Plans & credits, then continue exactly where you left off.",
+    };
+  }
+  if (/rate limit|too many requests|429/i.test(raw)) {
+    return {
+      code: "RATE_LIMITED",
+      status: 429,
+      message:
+        "The AI interviewer is handling too many requests right now. Your progress is saved — wait a few seconds and continue.",
+    };
+  }
+  if (/not configured/i.test(raw)) {
+    return {
+      code: "AI_NOT_CONFIGURED",
+      status: 503,
+      message:
+        "The AI interviewer isn't configured for this project yet. Your interview is saved and will resume once it's connected.",
+    };
+  }
+  return {
+    code: "AI_UNAVAILABLE",
+    status: 502,
+    message:
+      "The AI interviewer is temporarily unavailable. Your answers are saved — press continue to resume the interview.",
+  };
 }
+
+function aiStatus(message: string) {
+  return aiFailure(message).status;
+}
+
+// Error response that always carries the state needed to resume the same session.
+function aiErrorResponse(
+  error: unknown,
+  state: {
+    sessionId: string;
+    answered: number;
+    question?: Pending | null;
+    evaluation?: Evaluation;
+  },
+) {
+  const raw = error instanceof Error ? error.message : String(error);
+  const failure = aiFailure(raw);
+  return json(
+    {
+      error: failure.message,
+      code: failure.code,
+      retryable: true,
+      resumable: true,
+      detail: raw,
+      sessionId: state.sessionId,
+      answeredQuestions: state.answered,
+      totalQuestions: PRIMARY_QUESTIONS,
+      ...(state.question ? { question: state.question, questionNumber: state.question.index } : {}),
+      ...(state.evaluation ? { evaluation: state.evaluation } : {}),
+    },
+    failure.status,
+  );
+}
+
 async function callGemini(system: string, user: string): Promise<any> {
   const key = process.env['LOVABLE_API_KEY'];
 
