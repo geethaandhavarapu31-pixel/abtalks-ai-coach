@@ -47,6 +47,8 @@ function json(body: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
+const MODEL = "gemini-2.5-flash";
+
 async function callGemini(system: string, user: string): Promise<any> {
   const key = process.env["GEMINI_API_KEY"];
 
@@ -55,7 +57,7 @@ async function callGemini(system: string, user: string): Promise<any> {
   }
 
   const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
   let lastError = "";
 
@@ -64,15 +66,24 @@ async function callGemini(system: string, user: string): Promise<any> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-goog-api-key": key,
       },
       body: JSON.stringify({
         systemInstruction: {
-          parts: [{ text: system }],
+          parts: [
+            {
+              text: system,
+            },
+          ],
         },
         contents: [
           {
             role: "user",
-            parts: [{ text: user }],
+            parts: [
+              {
+                text: user,
+              },
+            ],
           },
         ],
         generationConfig: {
@@ -82,11 +93,16 @@ async function callGemini(system: string, user: string): Promise<any> {
     });
 
     if (res.status === 429) {
-      throw new Error("Gemini rate limit reached. Please retry in a moment.");
+      throw new Error(
+        "Gemini rate limit reached. Please retry in a moment."
+      );
     }
 
     if (!res.ok) {
-      lastError = `Gemini request failed [${res.status}]: ${await res.text()}`;
+      const errorText = await res.text();
+
+      lastError = `Gemini request failed [${res.status}]: ${errorText}`;
+
       continue;
     }
 
@@ -95,9 +111,13 @@ async function callGemini(system: string, user: string): Promise<any> {
     const text =
       payload?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
+    if (!text) {
+      throw new Error("Gemini returned an empty response");
+    }
+
     const cleaned = text
       .replace(/^```(?:json)?/i, "")
-      .replace(/```$/, "")
+      .replace(/```$/i, "")
       .trim();
 
     const start = cleaned.indexOf("{");
@@ -105,7 +125,9 @@ async function callGemini(system: string, user: string): Promise<any> {
 
     try {
       return JSON.parse(
-        start >= 0 ? cleaned.slice(start, end + 1) : cleaned
+        start >= 0
+          ? cleaned.slice(start, end + 1)
+          : cleaned
       );
     } catch {
       lastError = "Gemini returned invalid JSON";
