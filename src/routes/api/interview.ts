@@ -48,55 +48,46 @@ function json(body: unknown, status = 200) {
   });
 }
 async function callGemini(system: string, user: string): Promise<any> {
-  const key = process.env.GEMINI_API_KEY;
+  const key = process.env['LOVABLE_API_KEY'];
 
   if (!key) {
-    throw new Error("GEMINI_API_KEY is not configured");
+    throw new Error("AI is not configured");
   }
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
+  const url = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
   let lastError = "";
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      console.log("Calling Gemini...");
-      console.log("Model:", MODEL);
-
       const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Lovable-API-Key": key,
         },
         body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: system }],
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: user }],
-            },
+          model: MODEL,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
           ],
-          generationConfig: {
-            responseMimeType: "application/json",
-          },
+          response_format: { type: "json_object" },
         }),
       });
-
-      console.log("Gemini HTTP status:", res.status);
 
       const responseText = await res.text();
 
       if (res.status === 429) {
-        throw new Error(
-          "Gemini rate limit reached. Please try again later."
-        );
+        throw new Error("AI rate limit reached. Please try again in a moment.");
+      }
+
+      if (res.status === 402) {
+        throw new Error("AI credits exhausted. Please add credits to continue.");
       }
 
       if (!res.ok) {
-        lastError = `Gemini request failed [${res.status}]: ${responseText}`;
+        lastError = `AI request failed [${res.status}]: ${responseText}`;
         console.error(lastError);
         continue;
       }
@@ -106,19 +97,19 @@ async function callGemini(system: string, user: string): Promise<any> {
       try {
         payload = JSON.parse(responseText);
       } catch {
-        lastError = `Gemini returned invalid JSON: ${responseText}`;
+        lastError = `AI returned invalid JSON: ${responseText}`;
         console.error(lastError);
         continue;
       }
 
-      const text =
-        payload?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      const text = payload?.choices?.[0]?.message?.content ?? "";
 
       if (!text) {
-        lastError = "Gemini returned an empty response";
-        console.error("Gemini payload:", payload);
+        lastError = "AI returned an empty response";
+        console.error("AI payload:", payload);
         continue;
       }
+
 
       const cleaned = text
         .replace(/^```json/i, "")
