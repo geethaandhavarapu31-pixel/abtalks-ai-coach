@@ -822,7 +822,23 @@ export const Route = createFileRoute("/api/interview")({
 
         // 4. Complete or continue — every answer always moves forward.
         if (newTurns.length >= PRIMARY_QUESTIONS) {
-          const feedback = await buildFeedback(candidate, newTurns);
+          let feedback;
+          try {
+            feedback = await buildFeedback(candidate, newTurns);
+          } catch (e) {
+            // Persist the final answer; the report can be generated on a later retry.
+            await supabase
+              .from("interview_attempts")
+              .update({
+                turns: newTurns,
+                pending: null,
+                topics: topicPerformance(newTurns),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("session_id", sessionId);
+            return aiErrorResponse(e, { sessionId, answered: newTurns.length, evaluation });
+          }
+
           await supabase
             .from("interview_attempts")
             .update({
