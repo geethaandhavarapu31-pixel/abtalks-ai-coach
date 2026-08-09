@@ -4,7 +4,7 @@ AB TALKS is an AI-powered technical interview platform that gives candidates a p
 
 ## 🚀 Live Demo
 
-https://kind-ai-listener.lovable.app
+https://professional-fit.lovable.app
 
 ## 💡 How It Works
 
